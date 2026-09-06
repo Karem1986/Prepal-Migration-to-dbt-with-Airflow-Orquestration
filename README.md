@@ -41,6 +41,12 @@ Airflow's `prepal_postgres_conn` connection is no longer an environment variable
 
 **What would change moving to Azure Key Vault or AWS Secrets Manager in production:** the backend class (`AzureKeyVaultBackend` / `SecretsManagerBackend`), the authentication method (Managed Identity or an IAM role instead of a Vault token — the same passwordless-identity pattern already used by the `azurerm_databricks_access_connector` pattern in my Terraform/Databricks project), and the secret naming convention. The DAG code itself does not change — only the secrets backend configuration does. This is a smaller change than a rewrite, but it is a real config and auth change, not merely swapping a URL.
 
+In practice this looks like this:
+
+AIRFLOW__SECRETS__BACKEND: airflow.providers.hashicorp.secrets.vault.VaultBackend
+
+This is the single most important line in this whole feature. It tells Airflow: "before you check your own metastore for a connection, ask this class first." The value is a Python import path — Airflow instantiates that class at startup. This is the exact same config key you'd change to airflow.providers.microsoft.azure.secrets.key_vault.AzureKeyVaultBackend for Azure.
+
 ## Simulation SQL Store Procedures
 
 In order to do the demo of how store procedures work and how this approach is improved with dbt, I made a simulation implementing two store procedures, one for extracting the data from SAP and the other store procedure for loading the data that contains only price information on the DW On-Premises of the client.
