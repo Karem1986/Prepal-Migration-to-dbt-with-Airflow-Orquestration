@@ -23,24 +23,42 @@ services: # Docker know what you want him to do, add as many services as you nee
     depends_on:
       - postgres
 
+  # Local, self-hosted secrets manager. Same integration pattern as Azure Key
+  # Vault or AWS Secrets Manager from Airflow's point of view — swapping to
+  # one of those means swapping the backend class and its auth config, not
+  # rewriting the DAG. Dev mode auto-unseals and gives a fixed root token,
+  # which is fine for local demo use only.
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: prepal_vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_ROOT_TOKEN}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+
   airflow:
     image: apache/airflow:3.3.0
     container_name: prepal_airflow
     command: standalone
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false" # Hide Airflow's example DAGs, show only ours
-      # Airflow reads AIRFLOW_CONN_<CONN_ID> env vars as ready-made connections,
-      # so 'prepal_postgres_conn' (used in the DAG) exists with no manual UI setup.
-      AIRFLOW_CONN_PREPAL_POSTGRES_CONN: postgres://${DB_USER}:${DB_PASSWORD}@prepal_postgres:5432/${DB_NAME}
+      # No AIRFLOW_CONN_* env var here on purpose: the prepal_postgres_conn
+      # connection now comes exclusively from Vault via the secrets backend
+      # below, so a successful DAG run is proof Vault is actually the source.
+      AIRFLOW__SECRETS__BACKEND: airflow.providers.hashicorp.secrets.vault.VaultBackend
+      AIRFLOW__SECRETS__BACKEND_KWARGS: '{"url": "http://prepal_vault:8200", "token": "${VAULT_ROOT_TOKEN}", "mount_point": "secret", "connections_path": "connections"}'
       # dbt reads these same variables from profiles.yml via env_var()
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
       DB_PORT: 5432
       DB_HOST: prepal_postgres # Inside the Docker network, Postgres is not "localhost"
-      # Installs dbt at container startup. Fine for this demo; a real
-      # deployment would bake this into a custom image instead.
-      _PIP_ADDITIONAL_REQUIREMENTS: dbt-postgres
+      # Installs dbt and the Vault provider at container startup. Fine for
+      # this demo; a real deployment would bake this into a custom image instead.
+      _PIP_ADDITIONAL_REQUIREMENTS: dbt-postgres apache-airflow-providers-hashicorp
     ports:
       - "8085:8080" # 8080 is already taken by pgAdmin above
     volumes:
@@ -48,6 +66,7 @@ services: # Docker know what you want him to do, add as many services as you nee
       - ../dbt:/opt/airflow/dbt      # Mounted so the DAG's dbt build task can reach it
     depends_on:
       - postgres
+      - vault
 
-volumes: # What would happen without a volume?
+volumes:
   postgres_data:

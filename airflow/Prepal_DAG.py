@@ -49,8 +49,7 @@ with DAG(
     )
 
     # 4. Bronze is loaded, now build Silver and Gold with dbt.
-    # dbt build runs models in dependency order and stops on the first
-    # failed test, so a broken transformation never reaches the Gold layer that Power BI reads from.
+    # dbt build runs models in dependency order and stops on the first failed test, so a broken transformation never reaches the Gold layer that Power BI reads from.
     transform_with_dbt = BashOperator(
         task_id='transform_with_dbt',
         bash_command=f'cd "{DBT_PROJECT_DIR}" && dbt build --profiles-dir .',

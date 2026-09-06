@@ -23,7 +23,23 @@ SOLUTION: Apache Airflow for isolated ingestion and automated data pipelines orq
 
 I do not hardcode credentials into configuration files. I separated configuration from code by utilizing an external .env file that is strictly blacklisted in the .gitignore file.
 
-In our docker-compose.yml, the environment keys are dynamically injected at startup via host substitution. This exactly mirrors how a senior engineer prepares infrastructure for a production CI/CD pipeline where these exact same variables would be injected by a secure environment controller, such as GitHub Actions secrets or Azure Key Vault, without modifying a single line of application configuration
+In our docker-compose.yml, the environment keys are dynamically injected at startup via host substitution. This exactly mirrors how a senior engineer prepares infrastructure for a production CI/CD pipeline where these exact same variables would be injected by a secure environment controller, such as GitHub Actions secrets or Azure Key Vault, without modifying a single line of application configuration.
+
+## Centralized Secrets Management (HashiCorp Vault)
+
+Airflow's `prepal_postgres_conn` connection is no longer an environment variable, it's a secret stored in a self-hosted HashiCorp Vault container, resolved at runtime through Airflow's pluggable secrets backend.
+
+**Why this matters over the env var approach:** an environment variable is a copy of the credential. A secrets backend is a live lookup. If the Postgres password rotates, an env-var setup requires manually updating it everywhere it's duplicated; with Vault, every consumer reads the current value on its next request.
+
+**How it's wired (`stored_procedures_dwh-migration/docker-compose.yml`):**
+
+- A `vault` service runs `hashicorp/vault` in dev mode — auto-unsealed, fixed root token, local-only.
+- The Postgres connection is stored at `secret/connections/prepal_postgres_conn`.
+- Airflow's `AIRFLOW__SECRETS__BACKEND` is set to `VaultBackend`, with connection details in `AIRFLOW__SECRETS__BACKEND_KWARGS`. No `AIRFLOW_CONN_*` env var exists anymore, so a successful DAG run is proof the connection is genuinely coming from Vault.
+
+**Why HashiCorp Vault instead of Azure Key Vault, given this is an Azure-oriented project:** I don't have live Azure credentials for this portfolio project. Vault is cloud-agnostic self-hosted software, so it's the only option of the three (Vault, Key Vault, AWS Secrets Manager) that's fully runnable and testable locally, with zero cloud account required.
+
+**What would change moving to Azure Key Vault or AWS Secrets Manager in production:** the backend class (`AzureKeyVaultBackend` / `SecretsManagerBackend`), the authentication method (Managed Identity or an IAM role instead of a Vault token — the same passwordless-identity pattern already used by the `azurerm_databricks_access_connector` pattern in my Terraform/Databricks project), and the secret naming convention. The DAG code itself does not change — only the secrets backend configuration does. This is a smaller change than a rewrite, but it is a real config and auth change, not merely swapping a URL.
 
 ## Simulation SQL Store Procedures
 
@@ -37,7 +53,7 @@ The DAG (`airflow/prepal_ingestion_DAG.py`) runs four tasks:
 2. `extract_sap_orders` and `sync_retail_transactions` — run in parallel via `SQLExecuteQueryOperator`, each calling one Bronze stored procedure (`usp_extract_sap_orders`, `usp_sync_retail_transactions`).
 3. `transform_with_dbt` — once both Bronze loads finish, a `BashOperator` runs `dbt build` against the dbt project in `dbt/`. This single task is what builds the entire Silver and Gold layer: dbt reads the Bronze tables, builds the Silver staging views, then the Gold fact tables, then runs every schema test — all in dependency order, in one command.
 
-Apache Airflow's Task SDK does not run natively on Windows, so it runs the same way it would in a real production deployment: containerized. The `airflow` service in `stored_procedures_dwh-migration/docker-compose.yml` runs Airflow in `standalone` mode (webserver + scheduler + SQLite metadata DB in one process), with the `prepal_postgres_conn` connection injected automatically via the `AIRFLOW_CONN_PREPAL_POSTGRES_CONN` environment variable, no manual setup through the Airflow UI required.
+Apache Airflow's Task SDK does not run natively on Windows, so it runs the same way it would in a real production deployment: containerized. The `airflow` service in `stored_procedures_dwh-migration/docker-compose.yml` runs Airflow in `standalone` mode (webserver + scheduler + SQLite metadata DB in one process). The `prepal_postgres_conn` connection is resolved automatically from HashiCorp Vault at runtime (see Centralized Secrets Management below), no manual setup through the Airflow UI required.
 
 ## DBT Medallion Layers
 
@@ -65,3 +81,5 @@ If we look at enterprise migration frameworks—like 'Rehost-then-Refactor' mode
 By setting up Apache Airflow orchestration layer first, we establish a stable, containerized scheduling baseline using our existing stored procedures. We prove our connections, docker networks, and error-handling work perfectly.
 
 Once the infrastructure proves is working seamlessly, the SQL stored procedures are migrated to dbt models in Phase 3. This one-variable-at-a-time approach minimizes deployment risk and makes debugging incredibly straightforward.
+
+## Instruction to run this locally
