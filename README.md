@@ -89,3 +89,15 @@ By setting up Apache Airflow orchestration layer first, we establish a stable, c
 Once the infrastructure proves is working seamlessly, the SQL stored procedures are migrated to dbt models in Phase 3. This one-variable-at-a-time approach minimizes deployment risk and makes debugging incredibly straightforward.
 
 ## Instruction to run this locally
+
+1.Start the docker containers:
+
+ ***.\venv\Scripts\Activate.ps1***
+
+2.Run docker-compose up -d and verify each is up after with:
+
+ ***docker ps --format "table {{.Names}}\t{{.Status}}"***
+
+3.Open the Airflow UI:
+
+Navigate your browser to localhost:8085 and log in with admin / the password, run: "docker exec prepal_airflow cat /opt/airflow/simple_auth_manager_passwords.json.generated" to get a password (Or refer to docs/AIRFLOW.md instructions)

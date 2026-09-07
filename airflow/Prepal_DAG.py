@@ -14,7 +14,7 @@ DBT_PROJECT_DIR = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dbt")
 )
 
-# 1. Error handling: if a task fails it will retry once after 1 minute
+# 1. Error handling: if a task fails it will retry once after 1 minute (useful for demo purposes)
 default_args = {
     'owner': 'karin',
     'retries': 1,
