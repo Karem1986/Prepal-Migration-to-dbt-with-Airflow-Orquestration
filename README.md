@@ -61,11 +61,11 @@ The DAG (`airflow/prepal_ingestion_DAG.py`) runs four tasks:
 
 Apache Airflow's Task SDK does not run natively on Windows, so it runs the same way it would in a real production deployment: containerized. The `airflow` service in `stored_procedures_dwh-migration/docker-compose.yml` runs Airflow in `standalone` mode (webserver + scheduler + SQLite metadata DB in one process). The `prepal_postgres_conn` connection is resolved automatically from HashiCorp Vault at runtime (see Centralized Secrets Management below), no manual setup through the Airflow UI required.
 
-## Custom Airflow Image
+## Custom Airflow Image - Dockerfile
 
 The airflow container used to install dbt and the Vault provider every time it started up, through Airflow's `_PIP_ADDITIONAL_REQUIREMENTS` variable. It worked, but it meant reinstalling the same two packages on every single boot, which is slow and not really how you'd want to run this for real.
 
-I built a small Dockerfile instead, based on `apache/airflow:3.3.0`, that installs `dbt-postgres` and `apache-airflow-providers-hashicorp` directly into the image with pip. `docker-compose.yml` now builds this image locally (`build: .`) rather than pulling the plain Airflow image and reinstalling packages at runtime. The container starts up instantly now instead of waiting on pip every time.
+I built a small Dockerfile instead that installs `dbt-postgres` and `apache-airflow-providers-hashicorp` directly into the image with pip. `docker-compose.yml` now builds this image locally (`build: .`) rather than pulling the plain Airflow image and reinstalling packages at runtime. The container starts up instantly now instead of waiting on pip every time.
 
 ## DBT Medallion Layers
 
