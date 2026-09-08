@@ -61,6 +61,12 @@ The DAG (`airflow/prepal_ingestion_DAG.py`) runs four tasks:
 
 Apache Airflow's Task SDK does not run natively on Windows, so it runs the same way it would in a real production deployment: containerized. The `airflow` service in `stored_procedures_dwh-migration/docker-compose.yml` runs Airflow in `standalone` mode (webserver + scheduler + SQLite metadata DB in one process). The `prepal_postgres_conn` connection is resolved automatically from HashiCorp Vault at runtime (see Centralized Secrets Management below), no manual setup through the Airflow UI required.
 
+## Custom Airflow Image
+
+The airflow container used to install dbt and the Vault provider every time it started up, through Airflow's `_PIP_ADDITIONAL_REQUIREMENTS` variable. It worked, but it meant reinstalling the same two packages on every single boot, which is slow and not really how you'd want to run this for real.
+
+I built a small Dockerfile instead, based on `apache/airflow:3.3.0`, that installs `dbt-postgres` and `apache-airflow-providers-hashicorp` directly into the image with pip. `docker-compose.yml` now builds this image locally (`build: .`) rather than pulling the plain Airflow image and reinstalling packages at runtime. The container starts up instantly now instead of waiting on pip every time.
+
 ## DBT Medallion Layers
 
 Bronze is the raw output of the stored procedures above: `bronze_sap.sap_sales_orders` and `bronze_onprem.retail_transactions`.
@@ -70,6 +76,14 @@ dbt owns everything from here on:
 - **Silver** (`dbt/models/staging/`, materialized as views): `stg_sap_sales_orders` and `stg_retail_transactions` — typed, deduplicated, with `retail_transactions` gaining a computed `line_amount` column so downstream models never repeat that calculation.
 - **Gold** (`dbt/models/marts/`, materialized as tables): `fct_sap_sales_orders`, `fct_retail_transactions`, and `fct_daily_revenue_summary` — the last one unions both revenue streams onto a single daily grain, so Power BI reads one trusted number per day instead of two disagreeing reports from two source systems. This is the project's Single Source of Truth.
 - **Tests**: every primary key gets `unique` + `not_null`, and `fct_daily_revenue_summary.source_system` is constrained to `accepted_values`. `dbt build` fails fast on the first broken test, so bad data never reaches the Gold layer Power BI reads from.
+
+## Data Reconciliation Testing
+
+`fct_sap_sales_orders` and `fct_daily_revenue_summary` are **siblings**, not a dependency chain — both independently `ref()` the same Silver staging model, `stg_sap_sales_orders`, rather than one being built on top of the other (see DBT Medallion Layers above). That design keeps each Gold model simple and independently traceable back to Silver, but it also means nothing guarantees the two stay in agreement if one model's logic changes and the other doesn't.
+
+`dbt/tests/reconciliation_sap_gold_tables.sql` closes that gap for the SAP side of the business. It's a dbt **singular test**: a plain SQL query that recomputes the daily SAP total directly from `fct_sap_sales_orders`, joins it against the SAP rows already sitting in `fct_daily_revenue_summary` on `revenue_date`, and returns any day where the two totals disagree. Per dbt's test contract, zero rows returned means the test passes; any row returned is a real discrepancy and fails the build.
+
+This test runs automatically as part of `dbt build`, alongside the schema tests. The equivalent reconciliation test for the retail/WMS side (`fct_retail_transactions` vs. `fct_daily_revenue_summary`) is a natural next addition, following the same pattern.
 
 ## DBT vs SQL
 
@@ -92,7 +106,7 @@ Once the infrastructure proves is working seamlessly, the SQL stored procedures 
 
 1.Start the docker containers:
 
- ***.\venv\Scripts\Activate.ps1***
+ ***.\.venv\Scripts\Activate.ps1***
 
 2.Run docker-compose up -d and verify each is up after with:
 

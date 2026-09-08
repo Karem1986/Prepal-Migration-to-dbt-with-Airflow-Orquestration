@@ -1,9 +1,8 @@
-# Why Docker compose and simply not a local postgres database running locally?
-services: # Docker know what you want him to do, add as many services as you need.
+services: # what you want docker to do, add as many services as you need.
   postgres:
     image: postgres:15-alpine # Lightweight image to save disk space!
     container_name: prepal_postgres # 4. Container Identifier
-    environment: #Mandatory parameter
+    environment: # Mandatory parameter
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
@@ -24,10 +23,8 @@ services: # Docker know what you want him to do, add as many services as you nee
       - postgres
 
   # Local, self-hosted secrets manager. Same integration pattern as Azure Key
-  # Vault or AWS Secrets Manager from Airflow's point of view — swapping to
-  # one of those means swapping the backend class and its auth config, not
-  # rewriting the DAG. Dev mode auto-unseals and gives a fixed root token,
-  # which is fine for local demo use only.
+  # Vault or AWS Secrets Manager from Airflow's point of view swapping to
+  # one of those means swapping the backend class and its auth config fine for local demo use only.
   vault:
     image: hashicorp/vault:1.17
     container_name: prepal_vault
@@ -40,7 +37,7 @@ services: # Docker know what you want him to do, add as many services as you nee
       - "8200:8200"
 
   airflow:
-    image: apache/airflow:3.3.0
+    build: .
     container_name: prepal_airflow
     command: standalone
     environment:
@@ -56,9 +53,6 @@ services: # Docker know what you want him to do, add as many services as you nee
       DB_NAME: ${DB_NAME}
       DB_PORT: 5432
       DB_HOST: prepal_postgres # Inside the Docker network, Postgres is not "localhost"
-      # Installs dbt and the Vault provider at container startup. Fine for
-      # this demo; a real deployment would bake this into a custom image instead.
-      _PIP_ADDITIONAL_REQUIREMENTS: dbt-postgres apache-airflow-providers-hashicorp
     ports:
       - "8085:8080" # 8080 is already taken by pgAdmin above
     volumes:
