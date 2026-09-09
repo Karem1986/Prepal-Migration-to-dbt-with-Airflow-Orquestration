@@ -1,4 +1,6 @@
 .env
+venv/
+.venv/
 
 # dbt artifacts and local profile (contains connection details, never committed)
 dbt/profiles.yml
